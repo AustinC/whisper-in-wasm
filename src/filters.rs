@@ -15,7 +15,8 @@ use bunsen::kits::speech::whisper::{driver::WhisperSpecialIds, logit_filters::Lo
 /// - **No repetition loops.** On a sliver of audio (a draft 400 ms into a
 ///   word, say) tiny likes to loop: `f. f. f. …` to the token cap, which is
 ///   seconds of CPU in a browser. When the sampled text tokens end in a
-///   period-1..=24 pattern (a token up to a short sentence) repeated [`MIN_REPEATS`] times, only
+///   period-1..=24 pattern (a token up to a short sentence) repeated (5× for one token, 3× up to
+///   four, 2× for longer phrases), only
 ///   `<|endoftext|>` is left. (The timestamp grammar applied after this
 ///   never suppresses `<|endoftext|>`.)
 #[derive(Debug, Clone)]
@@ -47,7 +48,13 @@ impl LiveGuard {
             .filter(|&t| t < self.timestamp_begin)
             .collect();
         (1..=MAX_PERIOD).any(|period| {
-            let need = if period == 1 { MIN_SINGLE_REPEATS } else { MIN_REPEATS };
+            let need = match period {
+                1 => MIN_SINGLE_REPEATS,
+                2..=4 => MIN_REPEATS,
+                // A phrase of five tokens or more, twice back to back in
+                // one short window, is a loop far more often than speech.
+                _ => 2,
+            };
             let len = period * need;
             if text.len() < len {
                 return false;
@@ -109,6 +116,8 @@ mod tests {
         // A sentence said three times in a row: "Thank you for listening."
         let s = [400, 345, 329, 8680, 13];
         assert!(g.looping(&[s, s, s].concat()));
-        assert!(!g.looping(&[s, s].concat()));
+        assert!(g.looping(&[s, s].concat()));
+        // ...but a short phrase twice is speech: "thank you, thank you".
+        assert!(!g.looping(&[1, 2, 1, 2]));
     }
 }

@@ -21,6 +21,10 @@ let committedText = "";              // whole transcript (across streams)
 let stable = "", unstable = "";
 let levelSmooth = 0;
 let fileSource = null;
+// Held for the whole recording: Chrome may garbage-collect a source node
+// that only a local variable refers to, and the audio silently stops.
+let sourceNode = null, sinkNode = null;
+let lastAudioAt = 0;
 
 // ---- settings --------------------------------------------------------------
 const opts = {
@@ -171,15 +175,27 @@ async function start(file = null) {
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       src = ctx.createMediaStreamSource(stream);
-      // Not connected to the destination: the mic is not played back.
+      const track = stream.getAudioTracks()[0];
+      track.onended = () => recording && warn("the microphone was disconnected");
+      track.onmute = () => recording && warn("the microphone was muted by the browser or system");
+      track.onunmute = () => recording && (statusEl.textContent = "listening…");
     }
+    sourceNode = src;
     src.connect(node);
+    // The worklet feeds a silent gain into the destination, so the graph
+    // always pulls it (an unconnected AudioWorkletNode may stop being
+    // processed); the mic itself is never played back.
+    sinkNode = ctx.createGain();
+    sinkNode.gain.value = 0;
+    node.connect(sinkNode).connect(ctx.destination);
+    if (ctx.state !== "running") await ctx.resume();
   } catch (e) {
     errorEl.textContent = file ? `Could not play that file: ${e.message ?? e}` : `Microphone unavailable: ${e.message ?? e}`;
     cleanup();
     return;
   }
   received = 0;
+  lastAudioAt = performance.now();
   peaks = [];
   segments = [];
   stable = unstable = "";
@@ -212,14 +228,18 @@ function cleanup() {
   stream?.getTracks().forEach((t) => t.stop());
   try { fileSource?.stop(); } catch (_) {}
   fileSource = null;
+  sourceNode?.disconnect();
+  sinkNode?.disconnect();
   node?.disconnect();
   ctx?.close();
-  stream = node = ctx = null;
+  stream = node = ctx = sourceNode = sinkNode = null;
   micBtn.style.setProperty("--level", 0);
 }
 
 function onAudio(samples, rms) {
   if (!recording && !stopping) return;
+  if (recording && performance.now() - lastAudioAt > 1500) statusEl.textContent = "listening…";
+  lastAudioAt = performance.now();
   for (let i = 0; i < samples.length; i += PEAK_HOP) {
     let p = 0;
     const end = Math.min(i + PEAK_HOP, samples.length);
@@ -233,6 +253,21 @@ function onAudio(samples, rms) {
   micBtn.style.setProperty("--level", levelSmooth.toFixed(3));
   worker.postMessage({ type: "audio", samples }, [samples.buffer]);
 }
+
+function warn(text) {
+  statusEl.textContent = `⚠ ${text}`;
+}
+
+// Watchdog: say so if the audio stops arriving, rather than freezing silently.
+setInterval(() => {
+  if (!recording || fileSource) return;
+  const gap = (performance.now() - lastAudioAt) / 1000;
+  if (gap > 1.5) {
+    const track = stream?.getAudioTracks()[0];
+    warn(`no audio for ${gap.toFixed(0)} s (audio context ${ctx?.state}, mic ${track?.readyState}${track?.muted ? ", muted" : ""})`);
+    if (ctx?.state === "suspended") ctx.resume();
+  }
+}, 500);
 
 micBtn.addEventListener("click", () => (recording ? stop() : ready && start()));
 $("file").addEventListener("change", (e) => {

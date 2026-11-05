@@ -191,6 +191,24 @@ pub fn load_driver(
     )
 }
 
+/// Drops a phrase of three or more words that repeats back to back at the
+/// end of `text`: what is left of a loop the live guard ended
+/// ("And so my fellow Americans. And so my fellow Americans.").
+pub fn collapse_repeats(text: &str) -> String {
+    let mut words: Vec<&str> = text.split_whitespace().collect();
+    'outer: loop {
+        let n = words.len();
+        for period in 3..=n / 2 {
+            let (a, b) = (&words[n - 2 * period..n - period], &words[n - period..]);
+            if a.iter().zip(b).all(|(x, y)| norm(x) == norm(y)) {
+                words.truncate(n - period);
+                continue 'outer;
+            }
+        }
+        return words.join(" ");
+    }
+}
+
 /// One committed or provisional stretch of text.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Piece {
@@ -297,7 +315,7 @@ impl Transcriber {
             let piece = Piece {
                 start: seg.start,
                 end: seg.end,
-                text: seg.text.clone().unwrap_or_default().trim().to_string(),
+                text: collapse_repeats(seg.text.as_deref().unwrap_or_default().trim()),
             };
             match event {
                 TranscriptEvent::Committed(_) => {
@@ -335,6 +353,17 @@ impl LocalAgreement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collapses_trailing_repeats() {
+        assert_eq!(
+            collapse_repeats("And so my fellow American. And so my fellow American."),
+            "And so my fellow American."
+        );
+        assert_eq!(collapse_repeats("a b c a b c a b c"), "a b c");
+        assert_eq!(collapse_repeats("thank you thank you"), "thank you thank you");
+        assert_eq!(collapse_repeats("ask not what"), "ask not what");
+    }
 
     #[test]
     fn agreement_stabilizes_common_prefix() {
