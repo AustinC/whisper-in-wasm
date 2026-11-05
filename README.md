@@ -5,6 +5,9 @@ the transcript form. Whisper **tiny.en** runs locally in WebAssembly (Rust,
 [bunsen](https://zspacelabs.ai/bunsen/book/) on [burn](https://burn.dev)'s CPU
 backend with wasm SIMD). No audio leaves the page.
 
+<img width="1283" height="800" alt="whisper-wasm-test" src="https://github.com/user-attachments/assets/2fbedaa6-b0fb-4092-82e6-a69243dedcdf" />
+
+
 ## Run
 
 ```sh
