@@ -30,11 +30,10 @@ mic ─▶ AudioWorklet ─16 kHz─▶ main thread ─▶ Web Worker ─▶ was
         downsample)             transcript)    while decoding)  + LocalAgreement
 ```
 
-* **bunsen-asr's engine, as a library.** `bunsen-asr` is a CLI (cpal, file
-  cache, network), so it can't run in a browser. Its engine lives in the
-  `bunsen` crate, which builds for `wasm32-unknown-unknown`. This app uses
-  the same `WhisperStreamDriver` that `bunsen-asr`'s *responsive* preset uses,
-  but loads the weights and vocabulary from bytes instead of its file cache
+* **bunsen's stream driver, loaded from bytes.** The `bunsen` crate builds
+  for `wasm32-unknown-unknown` with its file cache and network features off.
+  This app drives its `WhisperStreamDriver` under the *responsive* policy,
+  and loads the weights and vocabulary from bytes fetched by the page
   (`src/engine.rs`).
 * **Overlapping sliding windows.** Under the responsive policy, every
   *draft interval* of speech (default 500 ms) the driver re-decodes all audio
