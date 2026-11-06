@@ -2,9 +2,10 @@
 //! and reports what the browser would show, plus how long each decode took.
 //!
 //! cargo run --release --example stream_wav -- path.wav [window_seconds]
+//! DEVICE=dgpu cargo run --release --features gpu --example stream_wav -- ...
 use std::time::Instant;
 
-use whisper_in_wasm::engine::{EngineOptions, Transcriber, load_driver};
+use whisper_in_wasm::engine::{EngineOptions, Transcriber, device_named, load_driver_on};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
@@ -23,12 +24,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<_, _>>()?;
 
     let t = Instant::now();
-    let driver = load_driver(
+    let name = std::env::var("DEVICE").unwrap_or_else(|_| "cpu".into());
+    let device = device_named(&name).ok_or("unknown DEVICE (gpu ones need --features gpu)")?;
+    let driver = load_driver_on(
         std::fs::read("web/models/whisper-tiny.en.safetensors")?,
         &std::fs::read_to_string("web/models/gpt2.tiktoken")?,
         &options,
+        &device,
     )?;
-    println!("loaded in {:?} ({options:?})", t.elapsed());
+    println!("loaded on {name} in {:?} ({options:?})", t.elapsed());
 
     let mut tr = Transcriber::new(&driver)?;
     let mut busy = 0.0;
@@ -37,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let u = tr.push(chunk)?;
         let dt = t.elapsed().as_secs_f64();
         busy += dt;
+        if std::env::var("TRACE").is_ok() { eprintln!("push {i:3} {dt:.3}s decoded={}", u.decoded); }
         if u.decoded {
             for c in &u.committed {
                 println!("[{:5.1}s] COMMIT {:5.2}-{:5.2} {}  ({dt:.2}s)", i as f64 * 0.1, c.start, c.end, c.text);

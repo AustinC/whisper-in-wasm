@@ -12,12 +12,18 @@ burn = { version = "0.22.0", default-features = false, features = ["std", "flex"
 # Feature unification only: turns on burn-flex's SIMD kernels (gemm's wasm-simd128 path).
 burn-flex = { version = "0.22.1", default-features = false, features = ["std", "simd"] }
 
+[features]
+# Spike: compile burn's wgpu backend in alongside flex (WebGPU in the browser,
+# Vulkan/Metal natively). Devices stay explicit; flex is still the default.
+gpu = ["burn/wgpu", "bunsen/wgpu", "dep:wasm-bindgen-futures"]
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "=0.2.130"
 serde_json = "1"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [dev-dependencies]
 hound = "3.5"

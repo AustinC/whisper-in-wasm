@@ -78,14 +78,46 @@ impl Default for EngineOptions {
     }
 }
 
+/// The CPU backend, named explicitly: with the `gpu` feature on,
+/// `Device::default()` would pick wgpu instead.
+pub fn cpu_device() -> Device {
+    burn::backend::FlexDevice.into()
+}
+
+/// A device by name: `cpu` (flex), and with the `gpu` feature `gpu` (wgpu's
+/// pick), `dgpu` / `igpu` (first discrete / integrated adapter).
+pub fn device_named(name: &str) -> Option<Device> {
+    #[cfg(feature = "gpu")]
+    {
+        use burn::backend::{WgpuDevice, WgpuDeviceKind};
+        match name {
+            "gpu" => return Some(WgpuDevice::default().into()),
+            "dgpu" => return Some(WgpuDevice::new(WgpuDeviceKind::DiscreteGpu(0)).into()),
+            "igpu" => return Some(WgpuDevice::new(WgpuDeviceKind::IntegratedGpu(0)).into()),
+            _ => {}
+        }
+    }
+    (name == "cpu").then(cpu_device)
+}
+
 /// Builds a driver over Whisper weights (`transformers` safetensors, any
-/// float precision) and a tiktoken vocabulary, all in memory.
+/// float precision) and a tiktoken vocabulary, all in memory, on the CPU.
 pub fn load_driver(
     safetensors: Vec<u8>,
     vocabulary: &str,
     options: &EngineOptions,
 ) -> BunsenResult<WhisperStreamDriver> {
-    let device = Device::default();
+    load_driver_on(safetensors, vocabulary, options, &cpu_device())
+}
+
+/// [`load_driver`] on a chosen device.
+pub fn load_driver_on(
+    safetensors: Vec<u8>,
+    vocabulary: &str,
+    options: &EngineOptions,
+    device: &Device,
+) -> BunsenResult<WhisperStreamDriver> {
+    let device = device.clone();
 
     let mut store = SafetensorsStore::from_bytes(Some(safetensors));
     let tensors = store

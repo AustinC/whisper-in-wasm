@@ -70,6 +70,53 @@ cargo run --release --example stream_wav -- web/jfk.wav [window_seconds]
 cargo run --release --example bench_encoder
 ```
 
+## WebGPU spike (`web-gpu` branch)
+
+`--features gpu` compiles burn's wgpu backend in next to flex. Devices are
+explicit (`engine::device_named`), so the app itself still runs on the CPU.
+
+```sh
+cargo run --release --features gpu --example bench_encoder -- dgpu   # cpu|gpu|dgpu|igpu
+DEVICE=dgpu cargo run --release --features gpu --example stream_wav -- web/jfk.wav
+GPU=1 ./build.sh    # -> web/pkg-gpu, then open http://localhost:8080/gpu-bench.html
+```
+
+Measured on a laptop with an RTX 5050 (discrete) and a Radeon 680M
+(integrated), 8 s window:
+
+| | CPU (flex) | RTX 5050 | Radeon 680M |
+|---|---|---|---|
+| encoder, native | 114 ms | 3 ms | 12 ms |
+| whole jfk.wav stream, native, real-time factor | 1.28 | 0.23 | 1.01 |
+| encoder in Chromium (wasm / WebGPU, incl. readback) | 320 ms | 10 ms | |
+| one GPU op + readback in Chromium (per-token floor) | | 2.8 ms | |
+
+Transcripts are identical on every device. On the integrated GPU the
+decoder's per-token round trips eat the encoder's gain.
+
+**What blocks it in the app:** browsers cannot block on a GPU readback, and
+cubecl's synchronous `into_data` panics on wasm. bunsen's stream driver reads
+the logits synchronously after every token and calls `forward_encoder`
+itself, so it cannot run on WebGPU as is (`gpu-bench.html` confirms the
+panic). Either route needs bunsen to change:
+
+* **GPU encoder, CPU decoder**: a hook to hand the driver precomputed encoder
+  features. It saves ~0.3 s of the ~0.7–2 s per decode.
+* **Everything on the GPU**: an async decode path (`into_data_async` per
+  token). Roughly 10 ms + ~3 ms × tokens per decode, ~100–150 ms for a
+  typical draft against ~0.7–2 s now.
+
+**Constructors re-ran on every call into wasm.** wasm-ld links a cdylib
+without `_initialize` as a *command* and wraps every export in
+`__wasm_call_ctors`. wasm-bindgen's `__externref_table_dealloc` runs whenever
+a JS handle drops (every WebGPU bind group), so each kernel launch replayed
+cubecl's and pliron's thousands of `inventory` registrations: 2.2 ms per
+launch, 700 ms per encoder. `src/web.rs` now exports `_initialize`, which
+makes the module a *reactor* that runs them once (launches: 10 µs). The CPU
+bundle had 23 such wrapped exports too.
+
+The gpu bundle is 33 MB of wasm (no `wasm-opt` here) against 6 MB for CPU.
+
 ## Next steps
 
 * **Threads**: wasm threads plus `wasm-bindgen-rayon` (nightly `build-std`,

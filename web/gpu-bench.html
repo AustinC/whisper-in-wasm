@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU spike</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; padding: 0 16px; }
+  pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #ddd; } pre { background: #1c1c1c; } }
+</style>
+</head>
+<body>
+<h1>WebGPU spike</h1>
+<p>Encoder on WebGPU (async readback) against flex on the CPU, in a worker, like the app.
+Build with <code>GPU=1 ./build.sh</code>. Window: <code>?window=8</code>.</p>
+<pre id="log">starting…</pre>
+<script type="module">
+const log = document.getElementById("log");
+log.textContent = "";
+const w = new Worker("gpu-bench-worker.js", { type: "module" });
+w.onmessage = (e) => { log.textContent += e.data + "\n"; window.__lines = log.textContent; };
+w.onerror = (e) => { log.textContent += "worker error: " + e.message + "\n"; };
+w.postMessage({ window: Number(new URLSearchParams(location.search).get("window") || 8) });
+</script>
+</body>
+</html>
